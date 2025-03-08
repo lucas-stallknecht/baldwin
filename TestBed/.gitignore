@@ -1,2 +1,5 @@
-/build
+build
+cmake-build-*/
+.clion
+.idea
 .cache

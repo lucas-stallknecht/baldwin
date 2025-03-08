@@ -1,0 +1,16 @@
+---
+BasedOnStyle: Mozilla
+AllowShortFunctionsOnASingleLine: All
+AllowShortLambdasOnASingleLine: None
+AllowShortLoopsOnASingleLine: 'false'
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakAfterReturnType: None
+BinPackParameters: 'true'
+BreakBeforeBraces: Attach
+FixNamespaceComments: 'true'
+IndentWidth: '4'
+Language: Cpp
+PointerAlignment: Left
+UseTab: Always
+PenaltyBreakAssignment: 1000
+
