@@ -20,7 +20,7 @@ foreach(SHADER IN LISTS SHADERS)
   add_custom_command(
     OUTPUT ${COMPILED_SHADER_DIR}/${FILENAME}.spv
     COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER} -o
-            ${SHADER_DIR}/${FILENAME}.spv
+            ${COMPILED_SHADER_DIR}/${FILENAME}.spv
     DEPENDS ${SHADER}
     COMMENT "Compiling ${FILENAME}")
   list(APPEND COMPILED_SHADERS ${COMPILED_SHADER_DIR}/${FILENAME}.spv)

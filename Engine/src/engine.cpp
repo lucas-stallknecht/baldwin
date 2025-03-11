@@ -48,8 +48,8 @@ bool Engine::initWindow() {
 void Engine::run() {
     std::cout << "- Engine run\n";
     while (!glfwWindowShouldClose(_window)) {
-	glfwPollEvents();
 	_renderer->run(_frame);
+	glfwPollEvents();
 	_frame++;
     }
 }

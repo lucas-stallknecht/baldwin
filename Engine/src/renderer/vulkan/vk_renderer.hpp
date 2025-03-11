@@ -63,6 +63,8 @@ class VulkanRenderer : public Renderer {
     void createSwapchain(int width, int height);
     void createCommands();
     void createSync();
+    void initDescriptors();
+    void initBackgroundPipeline();
     void clear(const VkCommandBuffer& cmd, int frameNum);
     void draw(int frameNum);
 

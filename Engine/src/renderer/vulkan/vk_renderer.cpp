@@ -1,13 +1,15 @@
+#include <iostream>
 #define VMA_IMPLEMENTATION
 #define GLFW_INCLUDE_VULKAN
 #include "vk_renderer.hpp"
 
 #include <cmath>
 #include <vulkan/vulkan_core.h>
+#include <VkBootstrap.h>
 #include "graphics_macros.hpp"
 #include "vk_images.hpp"
 #include "vk_infos.hpp"
-#include <VkBootstrap.h>
+#include "renderer/vulkan/vk_shaders.hpp"
 
 namespace baldwin {
 namespace vk {
@@ -21,6 +23,8 @@ bool VulkanRenderer::init(GLFWwindow* window, int width, int height,
     createSwapchain(width, height);
     createCommands();
     createSync();
+    initDescriptors();
+    initBackgroundPipeline();
 
     return true;
 }
@@ -44,7 +48,6 @@ void VulkanRenderer::initVulkan(GLFWwindow* window) {
 		     .build();
 #endif
     vkb::Instance vkbInst = instRes.value();
-
     _instance = vkbInst.instance;
 
     // Surface
@@ -70,6 +73,7 @@ void VulkanRenderer::initVulkan(GLFWwindow* window) {
 					   .set_surface(_surface)
 					   .select()
 					   .value();
+    std::cout << "Selected GPU :" << physicalDevice.name << std::endl;
     vkb::DeviceBuilder deviceBuilder{ physicalDevice };
     vkb::Device vkbDevice = deviceBuilder.build().value();
 
@@ -234,6 +238,73 @@ void VulkanRenderer::createSync() {
     }
 }
 
+void VulkanRenderer::initDescriptors() {
+    std::vector<DescriptorAllocator::PoolSizeRatio> poolSizes = {
+	{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 }
+    };
+    _descriptorAllocator.initPool(_device, 10, poolSizes);
+
+    DescriptorLayoutBuilder builder{};
+    builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+
+    _bgSetLayout = builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT, nullptr);
+    _bgDescriptors = _descriptorAllocator.allocate(
+      _device, _bgSetLayout, nullptr);
+
+    VkDescriptorImageInfo imgWriteInfo = {
+	.imageView = _drawImage.imageView,
+	.imageLayout = VK_IMAGE_LAYOUT_GENERAL
+    };
+    VkWriteDescriptorSet writeInfo = {
+	.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	.dstSet = _bgDescriptors,
+	.dstBinding = 0,
+	.descriptorCount = 1,
+	.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+	.pImageInfo = &imgWriteInfo
+    };
+    vkUpdateDescriptorSets(_device, 1, &writeInfo, 0, nullptr);
+
+    _deletionQueue.pushFunction([this]() {
+	vkDestroyDescriptorSetLayout(_device, _bgSetLayout, nullptr);
+	_descriptorAllocator.destroyPool(_device);
+    });
+}
+
+void VulkanRenderer::initBackgroundPipeline() {
+    VkPipelineLayoutCreateInfo ppLayoutInfo = {
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+	.setLayoutCount = 1,
+	.pSetLayouts = &_bgSetLayout
+    };
+    VK_CHECK(vkCreatePipelineLayout(
+	       _device, &ppLayoutInfo, nullptr, &_bgPipelineLayout),
+	     "Could not create background pipeline layout");
+
+    auto bgCode = readFile("shaders/test.comp.spv");
+    VkShaderModule module = createShaderModule(_device, bgCode);
+    VkPipelineShaderStageCreateInfo stageInfo = {
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+	.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+	.module = module,
+	.pName = "main",
+    };
+    VkComputePipelineCreateInfo ppInfo = {
+	.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+	.stage = stageInfo,
+	.layout = _bgPipelineLayout
+    };
+    VK_CHECK(vkCreateComputePipelines(
+	       _device, nullptr, 1, &ppInfo, nullptr, &_bgPipeline),
+	     "Could not create background pipeline");
+
+    vkDestroyShaderModule(_device, module, nullptr);
+    _deletionQueue.pushFunction([this]() {
+	vkDestroyPipelineLayout(_device, _bgPipelineLayout, nullptr);
+	vkDestroyPipeline(_device, _bgPipeline, nullptr);
+    });
+}
+
 void VulkanRenderer::run(int frameNum) { draw(frameNum); }
 
 void VulkanRenderer::clear(const VkCommandBuffer& cmd, int frameNum) {
@@ -275,6 +346,19 @@ void VulkanRenderer::draw(int frameNum) {
 	     "Could not begin command recording");
 
     clear(cmd, frameNum);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _bgPipeline);
+    vkCmdBindDescriptorSets(cmd,
+			    VK_PIPELINE_BIND_POINT_COMPUTE,
+			    _bgPipelineLayout,
+			    0,
+			    1,
+			    &_bgDescriptors,
+			    0,
+			    nullptr);
+    vkCmdDispatch(cmd,
+		  std::ceil(_drawImage.imageExtent.width / 16.0),
+		  std::ceil(_drawImage.imageExtent.height / 16.0),
+		  1);
 
     // Copy draw image content onto the swap chain image
     transitionImage(cmd,
@@ -304,7 +388,7 @@ void VulkanRenderer::draw(int frameNum) {
       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
       frameData.swapSemaphore);
     VkSemaphoreSubmitInfo signalInfo = getSemaphoreSubmitInfo(
-      VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frameData.renderSemaphore);
+      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frameData.renderSemaphore);
     VkSubmitInfo2 submitInfo = getSubmitInfo(
       &cmdSubmitInfo, &signalInfo, &waitInfo);
 
