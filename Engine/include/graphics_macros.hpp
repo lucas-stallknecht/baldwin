@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdexcept>
 #include <vulkan/vk_enum_string_helper.h>
 
 #ifndef NDEBUG

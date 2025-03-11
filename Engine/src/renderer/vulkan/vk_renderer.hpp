@@ -1,12 +1,15 @@
 #pragma once
 
-#include <GLFW/glfw3.h>
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
+#include <vulkan/vulkan_core.h>
 
 #include "../renderer.hpp"
+#include "renderer/vulkan/vk_descriptors.hpp"
 
 namespace baldwin {
 namespace vk {
@@ -40,11 +43,19 @@ struct FrameData {
     DeletionQueue deletionQueue;
 };
 
+struct AllocatedImage {
+    VkImage image = VK_NULL_HANDLE;
+    VkImageView imageView = VK_NULL_HANDLE;
+    VmaAllocation allocation = VK_NULL_HANDLE;
+    VkExtent3D imageExtent = {};
+    VkFormat imageFormat = VK_FORMAT_UNDEFINED;
+};
+
 class VulkanRenderer : public Renderer {
   public:
     bool init(GLFWwindow* window, int width, int height,
 	      bool tripleBuffering) override;
-    void run(int frame) override;
+    void run(int frameNum) override;
     void cleanup() override;
 
   private:
@@ -52,8 +63,10 @@ class VulkanRenderer : public Renderer {
     void createSwapchain(int width, int height);
     void createCommands();
     void createSync();
-    void draw(int frame);
+    void clear(const VkCommandBuffer& cmd, int frameNum);
+    void draw(int frameNum);
 
+    // General
     VkInstance _instance = VK_NULL_HANDLE;
     VkPhysicalDevice _gpu = VK_NULL_HANDLE;
     VkDevice _device = VK_NULL_HANDLE;
@@ -65,8 +78,18 @@ class VulkanRenderer : public Renderer {
     VkExtent2D _swapchainExtent = { 0, 0 };
     VkQueue _graphicsQueue = VK_NULL_HANDLE;
     uint32_t _graphicsQueueFamily;
+    VmaAllocator _allocator{};
 
+    // Resources
+    AllocatedImage _drawImage{};
+    VkDescriptorSetLayout _bgSetLayout = VK_NULL_HANDLE;
+    VkDescriptorSet _bgDescriptors = VK_NULL_HANDLE;
+    VkPipelineLayout _bgPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline _bgPipeline = VK_NULL_HANDLE;
+
+    // Helpers
     DeletionQueue _deletionQueue;
+    DescriptorAllocator _descriptorAllocator{};
     std::vector<FrameData> _frames;
     int _frameOverlap = 2;
     FrameData& getCurrentFrame(int frameNum) {

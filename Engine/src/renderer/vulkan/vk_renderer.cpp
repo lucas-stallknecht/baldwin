@@ -1,9 +1,9 @@
-#include <iostream>
-#include <ostream>
-#include <vulkan/vulkan_core.h>
+#define VMA_IMPLEMENTATION
 #define GLFW_INCLUDE_VULKAN
 #include "vk_renderer.hpp"
 
+#include <cmath>
+#include <vulkan/vulkan_core.h>
 #include "graphics_macros.hpp"
 #include "vk_images.hpp"
 #include "vk_infos.hpp"
@@ -26,8 +26,8 @@ bool VulkanRenderer::init(GLFWwindow* window, int width, int height,
 }
 
 void VulkanRenderer::initVulkan(GLFWwindow* window) {
-    /*  For an example of initialization without using VKB, see the Vulkan path
-     tracer source code */
+    /*  For an example of initialization without using VKB, see the Vulkan
+     path tracer source code */
 
     // Instance
     vkb::InstanceBuilder builder;
@@ -81,9 +81,20 @@ void VulkanRenderer::initVulkan(GLFWwindow* window) {
 			     .value();
     _graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
 
+    // VMA
+    VmaAllocatorCreateInfo allocatorInfo = {
+	.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+	.physicalDevice = _gpu,
+	.device = _device,
+	.instance = _instance,
+    };
+    VK_CHECK(vmaCreateAllocator(&allocatorInfo, &_allocator),
+	     "Could not create VMA Allocator");
+
     _deletionQueue.pushFunction([this, vkbInst]() {
-		vkb::destroy_debug_utils_messenger(_instance, vkbInst.debug_messenger);
-    vkDestroySwapchainKHR(_device, _swapchain, nullptr);
+	vmaDestroyAllocator(_allocator);
+	vkb::destroy_debug_utils_messenger(_instance, vkbInst.debug_messenger);
+	vkDestroySwapchainKHR(_device, _swapchain, nullptr);
 	vkDestroySurfaceKHR(_instance, _surface, nullptr);
 	vkDestroyDevice(_device, nullptr);
 	vkDestroyInstance(_instance, nullptr);
@@ -113,12 +124,48 @@ void VulkanRenderer::createSwapchain(int width, int height) {
     _swapchainImages = vkbSwapchain.get_images().value();
     _swapchainImageViews = vkbSwapchain.get_image_views().value();
 
-	_deletionQueue.pushFunction([this]() {
-		for (auto& imgView: _swapchainImageViews) {
-			vkDestroyImageView(_device, imgView, nullptr);
-		}
-		});
+    // Draw image
+    _drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    _drawImage.imageExtent = { _swapchainExtent.width,
+			       _swapchainExtent.height,
+			       1 };
 
+    VkImageUsageFlags drawImageUsages = {};
+    drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    drawImageUsages |= VK_IMAGE_USAGE_STORAGE_BIT;
+    drawImageUsages |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+    VkImageCreateInfo imgInfo = getImageCreateInfo(
+      _drawImage.imageFormat, drawImageUsages, _drawImage.imageExtent);
+
+    // GPU memory only
+    VmaAllocationCreateInfo imgAllocInfo = {
+	.usage = VMA_MEMORY_USAGE_GPU_ONLY,
+	.requiredFlags = VkMemoryPropertyFlags(
+	  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+    vmaCreateImage(_allocator,
+		   &imgInfo,
+		   &imgAllocInfo,
+		   &_drawImage.image,
+		   &_drawImage.allocation,
+		   nullptr);
+
+    // Associated view
+    VkImageViewCreateInfo imgViewInfo = getImageViewCreateInfo(
+      _drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+    VK_CHECK(
+      vkCreateImageView(_device, &imgViewInfo, nullptr, &_drawImage.imageView),
+      "Could not create draw iamge view");
+
+    _deletionQueue.pushFunction([this]() {
+	vkDestroyImageView(_device, _drawImage.imageView, nullptr);
+	vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
+	for (auto& imgView : _swapchainImageViews) {
+	    vkDestroyImageView(_device, imgView, nullptr);
+	}
+    });
 }
 
 void VulkanRenderer::createCommands() {
@@ -187,14 +234,28 @@ void VulkanRenderer::createSync() {
     }
 }
 
-void VulkanRenderer::run(int frame) { draw(frame); }
+void VulkanRenderer::run(int frameNum) { draw(frameNum); }
 
-void VulkanRenderer::draw(int frame) {
+void VulkanRenderer::clear(const VkCommandBuffer& cmd, int frameNum) {
+    transitionImage(cmd,
+		    _drawImage.image,
+		    VK_IMAGE_LAYOUT_UNDEFINED,
+		    VK_IMAGE_LAYOUT_GENERAL);
+
+    float bValue = 0.5 + 0.5 * std::sin(static_cast<float>(frameNum) / 120.0);
+    VkClearColorValue clearValue = { 0.0, 0.0, bValue };
+    VkImageSubresourceRange srRange = getImageSubresourceRange(
+      VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(
+      cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &srRange);
+}
+
+void VulkanRenderer::draw(int frameNum) {
     // Wait for GPU to finish rendering
-    FrameData frameData = getCurrentFrame(frame);
+    FrameData frameData = getCurrentFrame(frameNum);
     vkWaitForFences(_device, 1, &frameData.renderFence, VK_TRUE, 1000000000);
     vkResetFences(_device, 1, &frameData.renderFence);
-    // Request swapchain image index that we can draw on
+    // Request swapchain image index that we can blit on
     uint32_t swapchainImgIndex;
     VK_CHECK(vkAcquireNextImageKHR(_device,
 				   _swapchain,
@@ -213,25 +274,26 @@ void VulkanRenderer::draw(int frame) {
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo),
 	     "Could not begin command recording");
 
-    // Draw directly onto the swapchain image (for now)
+    clear(cmd, frameNum);
+
+    // Copy draw image content onto the swap chain image
+    transitionImage(cmd,
+		    _drawImage.image,
+		    VK_IMAGE_LAYOUT_GENERAL,
+		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     transitionImage(cmd,
 		    _swapchainImages[swapchainImgIndex],
 		    VK_IMAGE_LAYOUT_UNDEFINED,
-		    VK_IMAGE_LAYOUT_GENERAL);
-
-    VkClearColorValue clearValue = { 0.0, 1.0, 0.0 };
-    VkImageSubresourceRange srRange = getImageSubresourceRange(
-      VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(cmd,
-			 _swapchainImages[swapchainImgIndex],
-			 VK_IMAGE_LAYOUT_GENERAL,
-			 &clearValue,
-			 1,
-			 &srRange);
+		    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copyImageToImage(cmd,
+		     _drawImage.image,
+		     _swapchainImages[swapchainImgIndex],
+		     _swapchainExtent,
+		     _swapchainExtent);
 
     transitionImage(cmd,
 		    _swapchainImages[swapchainImgIndex],
-		    VK_IMAGE_LAYOUT_GENERAL,
+		    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     VK_CHECK(vkEndCommandBuffer(cmd), "Could not end command recording");

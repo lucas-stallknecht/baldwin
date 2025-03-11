@@ -1,3 +1,6 @@
 [submodule "Engine/third_party/vk-bootstrap"]
 	path = Engine/third_party/vk-bootstrap
 	url = https://github.com/charles-lunarg/vk-bootstrap.git
+[submodule "Engine/third_party/vma"]
+	path = Engine/third_party/vma
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git

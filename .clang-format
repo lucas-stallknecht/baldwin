@@ -12,5 +12,6 @@ IndentWidth: '4'
 Language: Cpp
 PointerAlignment: Left
 UseTab: Always
+SortIncludes: 'false'
 PenaltyBreakAssignment: 1000
 
