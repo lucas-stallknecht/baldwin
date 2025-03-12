@@ -314,31 +314,36 @@ void VulkanRenderer::clear(const VkCommandBuffer& cmd, int frameNum) {
 		    VK_IMAGE_LAYOUT_GENERAL);
 
     float bValue = 0.5 + 0.5 * std::sin(static_cast<float>(frameNum) / 120.0);
-    VkClearColorValue clearValue = { 0.0, 0.0, bValue };
-    VkImageSubresourceRange srRange = getImageSubresourceRange(
+    VkClearColorValue clearValue = { 0.0, 0.0, bValue, 1.0 };
+    VkImageSubresourceRange srcRange = getImageSubresourceRange(
       VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(
-      cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &srRange);
+    vkCmdClearColorImage(cmd,
+			 _drawImage.image,
+			 VK_IMAGE_LAYOUT_GENERAL,
+			 &clearValue,
+			 1,
+			 &srcRange);
 }
 
 void VulkanRenderer::draw(int frameNum) {
     // Wait for GPU to finish rendering
-    FrameData frameData = getCurrentFrame(frameNum);
-    vkWaitForFences(_device, 1, &frameData.renderFence, VK_TRUE, 1000000000);
-    vkResetFences(_device, 1, &frameData.renderFence);
+    vkWaitForFences(
+      _device, 1, &getCurrentFrame(frameNum).renderFence, VK_TRUE, 1000000000);
+    vkResetFences(_device, 1, &getCurrentFrame(frameNum).renderFence);
+
     // Request swapchain image index that we can blit on
     uint32_t swapchainImgIndex;
     VK_CHECK(vkAcquireNextImageKHR(_device,
 				   _swapchain,
 				   1000000,
-				   frameData.swapSemaphore,
+				   getCurrentFrame(frameNum).swapSemaphore,
 				   nullptr,
 				   &swapchainImgIndex),
 	     "Could not get swap chain image index");
 
     // Usual command workflow is : 1. wait / 2. reset / 3. begin / 4. record
     // / 5. submit to queue
-    VkCommandBuffer cmd = frameData.mainCommandBuffer;
+    VkCommandBuffer cmd = getCurrentFrame(frameNum).mainCommandBuffer;
     VK_CHECK(vkResetCommandBuffer(cmd, 0), "Could not reset command buffer");
     VkCommandBufferBeginInfo cmdBeginInfo = getCommandBufferBeginInfo(
       VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
@@ -374,7 +379,6 @@ void VulkanRenderer::draw(int frameNum) {
 		     _swapchainImages[swapchainImgIndex],
 		     _swapchainExtent,
 		     _swapchainExtent);
-
     transitionImage(cmd,
 		    _swapchainImages[swapchainImgIndex],
 		    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -386,14 +390,16 @@ void VulkanRenderer::draw(int frameNum) {
     VkCommandBufferSubmitInfo cmdSubmitInfo = getCommandBufferSubmitInfo(cmd);
     VkSemaphoreSubmitInfo waitInfo = getSemaphoreSubmitInfo(
       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-      frameData.swapSemaphore);
+      getCurrentFrame(frameNum).swapSemaphore);
     VkSemaphoreSubmitInfo signalInfo = getSemaphoreSubmitInfo(
-      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frameData.renderSemaphore);
+      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+      getCurrentFrame(frameNum).renderSemaphore);
     VkSubmitInfo2 submitInfo = getSubmitInfo(
       &cmdSubmitInfo, &signalInfo, &waitInfo);
 
     VK_CHECK(
-      vkQueueSubmit2(_graphicsQueue, 1, &submitInfo, frameData.renderFence),
+      vkQueueSubmit2(
+	_graphicsQueue, 1, &submitInfo, getCurrentFrame(frameNum).renderFence),
       "Could not submit graphics commands to queue");
 
     // We wait for rendering operations to finish and we present
@@ -401,7 +407,7 @@ void VulkanRenderer::draw(int frameNum) {
 	.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 	.pNext = nullptr,
 	.waitSemaphoreCount = 1,
-	.pWaitSemaphores = &frameData.renderSemaphore,
+	.pWaitSemaphores = &getCurrentFrame(frameNum).renderSemaphore,
 	.swapchainCount = 1,
 	.pSwapchains = &_swapchain,
 	.pImageIndices = &swapchainImgIndex

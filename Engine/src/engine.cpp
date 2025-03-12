@@ -37,6 +37,7 @@ bool Engine::initWindow() {
     assert(glfwInit() == 1);
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
     /*glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);*/
     _window = glfwCreateWindow(
       _width, _height, "Baldwin Engine", nullptr, nullptr);
@@ -48,8 +49,8 @@ bool Engine::initWindow() {
 void Engine::run() {
     std::cout << "- Engine run\n";
     while (!glfwWindowShouldClose(_window)) {
-	_renderer->run(_frame);
 	glfwPollEvents();
+	_renderer->run(_frame);
 	_frame++;
     }
 }
