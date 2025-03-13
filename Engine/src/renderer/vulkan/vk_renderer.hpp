@@ -14,10 +14,6 @@
 namespace baldwin {
 namespace vk {
 
-const std::vector<const char*> VALIDATIONS_LAYERS = {
-    "VK_LAYER_KHRONOS_validation",
-};
-
 struct DeletionQueue {
     std::deque<std::function<void()>> deletors;
 
@@ -56,6 +52,7 @@ class VulkanRenderer : public Renderer {
     bool init(GLFWwindow* window, int width, int height,
 	      bool tripleBuffering) override;
     void run(int frameNum) override;
+    void newImguiFrame() override;
     void cleanup() override;
 
   private:
@@ -65,6 +62,8 @@ class VulkanRenderer : public Renderer {
     void createSync();
     void initDescriptors();
     void initBackgroundPipeline();
+    void initImguiBackend(GLFWwindow* window);
+    void drawImgui(const VkCommandBuffer& cmd, VkImageView targetImageView);
     void draw(int frameNum);
 
     // General

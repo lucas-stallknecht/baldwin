@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.3)
+cmake_minimum_required(VERSION 3.21)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(baldwin)
@@ -35,6 +35,7 @@ add_dependencies(${PROJECT_NAME} compile_shaders)
 add_subdirectory(${THIRD_PARTY_DIR}/glfw-3.4)
 add_subdirectory(${THIRD_PARTY_DIR}/vk-bootstrap)
 add_subdirectory(${THIRD_PARTY_DIR}/vma)
+add_subdirectory(${THIRD_PARTY_DIR}/imgui)
 
 target_include_directories(
   ${PROJECT_NAME}
@@ -42,4 +43,4 @@ target_include_directories(
          ${Vulkan_INCLUDE_DIRS} ${THIRD_PARY_DIR}/vma)
 target_link_libraries(
   ${PROJECT_NAME} PRIVATE glfw ${Vulkan_LIBRARIES} vk-bootstrap::vk-bootstrap
-                          GPUOpen::VulkanMemoryAllocator)
+                          GPUOpen::VulkanMemoryAllocator imgui)

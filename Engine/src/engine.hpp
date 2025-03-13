@@ -20,6 +20,7 @@ class Engine {
 
   private:
     bool initWindow();
+    bool initImgui();
 
     int _frame = 0;
     int _width, _height;

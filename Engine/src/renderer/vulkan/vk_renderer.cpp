@@ -1,11 +1,15 @@
-#include <iostream>
 #define VMA_IMPLEMENTATION
 #define GLFW_INCLUDE_VULKAN
 #include "vk_renderer.hpp"
 
 #include <cmath>
+#include <iostream>
+#include <cstdint>
 #include <vulkan/vulkan_core.h>
 #include <VkBootstrap.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+
 #include "graphics_macros.hpp"
 #include "vk_images.hpp"
 #include "vk_infos.hpp"
@@ -25,6 +29,7 @@ bool VulkanRenderer::init(GLFWwindow* window, int width, int height,
     createSync();
     initDescriptors();
     initBackgroundPipeline();
+    initImguiBackend(window);
 
     return true;
 }
@@ -32,19 +37,24 @@ bool VulkanRenderer::init(GLFWwindow* window, int width, int height,
 void VulkanRenderer::initVulkan(GLFWwindow* window) {
     /*  For an example of initialization without using VKB, see the Vulkan
      path tracer source code */
+    uint32_t extensionCount;
+    const char** extensions = glfwGetRequiredInstanceExtensions(
+      &extensionCount);
 
     // Instance
     vkb::InstanceBuilder builder;
 
 #ifdef ENABLE_VALIDATION_LAYERS
     auto instRes = builder.set_app_name("Baldwin Engine Application")
-		     .request_validation_layers(VALIDATIONS_LAYERS.data())
+		     .request_validation_layers()
+		     .enable_extensions(extensionCount, extensions)
 		     .use_default_debug_messenger()
 		     .require_api_version(1, 3, 0)
 		     .build();
 #else
     auto instRes = builder.set_app_name("Baldwin Engine Application")
 		     .require_api_version(1, 3, 0)
+		     .enable_extensions(extensionCount, extensions)
 		     .build();
 #endif
     vkb::Instance vkbInst = instRes.value();
@@ -305,7 +315,78 @@ void VulkanRenderer::initBackgroundPipeline() {
     });
 }
 
+void VulkanRenderer::initImguiBackend(GLFWwindow* wwindow) {
+    VkDescriptorPoolSize poolSizes[] = {
+	{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+	{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+	{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+	{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+	{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+	{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+	{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+	{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+	{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+	{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+	{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+    };
+    VkDescriptorPoolCreateInfo poolInfo = {
+	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+	.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+	.maxSets = 1000,
+	.poolSizeCount = static_cast<uint32_t>(std::size(poolSizes)),
+	.pPoolSizes = poolSizes,
+    };
+
+    VkDescriptorPool imguiPool;
+    VK_CHECK(vkCreateDescriptorPool(_device, &poolInfo, nullptr, &imguiPool),
+	     "Failed to create ImGui pool");
+
+    ImGui_ImplGlfw_InitForVulkan(wwindow, true);
+    ImGui_ImplVulkan_InitInfo imguiVulkInitInfo = {
+	.Instance = _instance,
+	.PhysicalDevice = _gpu,
+	.Device = _device,
+	.Queue = _graphicsQueue,
+	.DescriptorPool = imguiPool,
+	.MinImageCount = 2,
+	.ImageCount = static_cast<uint32_t>(_frameOverlap),
+	.MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+	.UseDynamicRendering = true
+    };
+    imguiVulkInitInfo.PipelineRenderingCreateInfo = {
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+	.colorAttachmentCount = 1,
+	.pColorAttachmentFormats = &_swapchainFormat
+    };
+    ImGui_ImplVulkan_Init(&imguiVulkInitInfo);
+    ImGui_ImplVulkan_CreateFontsTexture();
+
+    _deletionQueue.pushFunction([this, imguiPool]() {
+	vkDestroyDescriptorPool(_device, imguiPool, nullptr);
+    });
+}
+
+void VulkanRenderer::newImguiFrame() {
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+}
+
 void VulkanRenderer::run(int frameNum) { draw(frameNum); }
+
+void VulkanRenderer::drawImgui(const VkCommandBuffer& cmd,
+			       VkImageView targetImageView) {
+    VkRenderingAttachmentInfo colorAttachment = getAttachmentInfo(
+      targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    VkRenderingInfo renderInfo = getRenderingInfo(
+      _swapchainExtent, &colorAttachment, nullptr);
+
+    vkCmdBeginRendering(cmd, &renderInfo);
+
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+    vkCmdEndRendering(cmd);
+}
 
 void VulkanRenderer::draw(int frameNum) {
     // Wait for GPU to finish rendering
@@ -378,9 +459,16 @@ void VulkanRenderer::draw(int frameNum) {
 		     _swapchainImages[swapchainImgIndex],
 		     _swapchainExtent,
 		     _swapchainExtent);
+
     createImageBarrierWithTransition(cmd,
 				     _swapchainImages[swapchainImgIndex],
 				     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				     VK_IMAGE_LAYOUT_GENERAL);
+    drawImgui(cmd, _swapchainImageViews[swapchainImgIndex]);
+
+    createImageBarrierWithTransition(cmd,
+				     _swapchainImages[swapchainImgIndex],
+				     VK_IMAGE_LAYOUT_GENERAL,
 				     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     VK_CHECK(vkEndCommandBuffer(cmd), "Could not end command recording");

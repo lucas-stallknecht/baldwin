@@ -3,6 +3,7 @@
 #include <cassert>
 #include <iostream>
 #include <memory>
+#include <imgui.h>
 
 #include "renderer/vulkan/vk_renderer.hpp"
 
@@ -26,6 +27,7 @@ bool Engine::init() {
     assert(loadedEngine == nullptr);
 
     assert(initWindow() == true);
+    assert(initImgui() == true);
     assert(_renderer->init(_window, _width, _height, false) == true);
 
     std::cout << "- Engine init\n";
@@ -46,10 +48,26 @@ bool Engine::initWindow() {
     return _window != nullptr;
 }
 
+bool Engine::initImgui() {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui::StyleColorsDark();
+
+    return true;
+}
+
 void Engine::run() {
     std::cout << "- Engine run\n";
     while (!glfwWindowShouldClose(_window)) {
 	glfwPollEvents();
+	_renderer->newImguiFrame();
+	ImGui::NewFrame();
+	{
+	    ImGui::Begin("Settings");
+	    ImGui::End();
+	}
+	ImGui::EndFrame();
+	ImGui::Render();
 	_renderer->run(_frame);
 	_frame++;
     }
