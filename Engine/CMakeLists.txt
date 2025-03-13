@@ -12,18 +12,18 @@ set(COMPILED_SHADER_DIR ${CMAKE_BINARY_DIR}/shaders)
 find_package(Vulkan REQUIRED)
 
 # Shader compilation pipeline
-file(GLOB SHADERS "${SHADER_DIR}/*.vert" "${SHADER_DIR}/*.frag"
-     "${SHADER_DIR}/*.comp")
+file(GLOB SHADERS "${SHADER_DIR}/*.glsl")
 file(MAKE_DIRECTORY ${COMPILED_SHADER_DIR})
 foreach(SHADER IN LISTS SHADERS)
   get_filename_component(FILENAME ${SHADER} NAME)
+  get_filename_component(SHADER_NAME ${SHADER} NAME_WLE)
   add_custom_command(
-    OUTPUT ${COMPILED_SHADER_DIR}/${FILENAME}.spv
+    OUTPUT ${COMPILED_SHADER_DIR}/${SHADER_NAME}.spv
     COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER} -o
-            ${COMPILED_SHADER_DIR}/${FILENAME}.spv
+            ${COMPILED_SHADER_DIR}/${SHADER_NAME}.spv
     DEPENDS ${SHADER}
     COMMENT "Compiling ${FILENAME}")
-  list(APPEND COMPILED_SHADERS ${COMPILED_SHADER_DIR}/${FILENAME}.spv)
+  list(APPEND COMPILED_SHADERS ${COMPILED_SHADER_DIR}/${SHADER_NAME}.spv)
 endforeach()
 add_custom_target(compile_shaders ALL DEPENDS ${COMPILED_SHADERS})
 

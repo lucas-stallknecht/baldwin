@@ -307,24 +307,6 @@ void VulkanRenderer::initBackgroundPipeline() {
 
 void VulkanRenderer::run(int frameNum) { draw(frameNum); }
 
-void VulkanRenderer::clear(const VkCommandBuffer& cmd, int frameNum) {
-    transitionImage(cmd,
-		    _drawImage.image,
-		    VK_IMAGE_LAYOUT_UNDEFINED,
-		    VK_IMAGE_LAYOUT_GENERAL);
-
-    float bValue = 0.5 + 0.5 * std::sin(static_cast<float>(frameNum) / 120.0);
-    VkClearColorValue clearValue = { 0.0, 0.0, bValue, 1.0 };
-    VkImageSubresourceRange srcRange = getImageSubresourceRange(
-      VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(cmd,
-			 _drawImage.image,
-			 VK_IMAGE_LAYOUT_GENERAL,
-			 &clearValue,
-			 1,
-			 &srcRange);
-}
-
 void VulkanRenderer::draw(int frameNum) {
     // Wait for GPU to finish rendering
     vkWaitForFences(
@@ -350,7 +332,24 @@ void VulkanRenderer::draw(int frameNum) {
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo),
 	     "Could not begin command recording");
 
-    clear(cmd, frameNum);
+    createImageBarrierWithTransition(cmd,
+				     _drawImage.image,
+				     VK_IMAGE_LAYOUT_UNDEFINED,
+				     VK_IMAGE_LAYOUT_GENERAL);
+
+    float bValue = 0.5 + 0.5 * std::sin(static_cast<float>(frameNum) / 120.0);
+    VkClearColorValue clearValue = { 0.0, 0.0, bValue, 1.0 };
+    VkImageSubresourceRange srcRange = getImageSubresourceRange(
+      VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(cmd,
+			 _drawImage.image,
+			 VK_IMAGE_LAYOUT_GENERAL,
+			 &clearValue,
+			 1,
+			 &srcRange);
+
+    createImageBarrier(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL);
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _bgPipeline);
     vkCmdBindDescriptorSets(cmd,
 			    VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -366,23 +365,23 @@ void VulkanRenderer::draw(int frameNum) {
 		  1);
 
     // Copy draw image content onto the swap chain image
-    transitionImage(cmd,
-		    _drawImage.image,
-		    VK_IMAGE_LAYOUT_GENERAL,
-		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    transitionImage(cmd,
-		    _swapchainImages[swapchainImgIndex],
-		    VK_IMAGE_LAYOUT_UNDEFINED,
-		    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    createImageBarrierWithTransition(cmd,
+				     _drawImage.image,
+				     VK_IMAGE_LAYOUT_GENERAL,
+				     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    createImageBarrierWithTransition(cmd,
+				     _swapchainImages[swapchainImgIndex],
+				     VK_IMAGE_LAYOUT_UNDEFINED,
+				     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     copyImageToImage(cmd,
 		     _drawImage.image,
 		     _swapchainImages[swapchainImgIndex],
 		     _swapchainExtent,
 		     _swapchainExtent);
-    transitionImage(cmd,
-		    _swapchainImages[swapchainImgIndex],
-		    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    createImageBarrierWithTransition(cmd,
+				     _swapchainImages[swapchainImgIndex],
+				     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     VK_CHECK(vkEndCommandBuffer(cmd), "Could not end command recording");
 
@@ -402,7 +401,8 @@ void VulkanRenderer::draw(int frameNum) {
 	_graphicsQueue, 1, &submitInfo, getCurrentFrame(frameNum).renderFence),
       "Could not submit graphics commands to queue");
 
-    // We wait for rendering operations to finish and we present
+    // We wait for rendering operations to finish and we
+    // present
     VkPresentInfoKHR presentInfo = {
 	.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 	.pNext = nullptr,

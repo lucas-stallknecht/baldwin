@@ -65,7 +65,6 @@ class VulkanRenderer : public Renderer {
     void createSync();
     void initDescriptors();
     void initBackgroundPipeline();
-    void clear(const VkCommandBuffer& cmd, int frameNum);
     void draw(int frameNum);
 
     // General

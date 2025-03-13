@@ -4,8 +4,11 @@ namespace baldwin {
 namespace vk {
 
 VkImageSubresourceRange getImageSubresourceRange(VkImageAspectFlags aspectMask);
-void transitionImage(VkCommandBuffer cmd, VkImage image,
-		     VkImageLayout currentLayout, VkImageLayout newLayout);
+void createImageBarrier(VkCommandBuffer cmd, VkImage image,
+			VkImageLayout imageLayout);
+void createImageBarrierWithTransition(VkCommandBuffer cmd, VkImage image,
+				      VkImageLayout currentLayout,
+				      VkImageLayout newLayout);
 void copyImageToImage(VkCommandBuffer cmd, VkImage source, VkImage destination,
 		      VkExtent2D srcSize, VkExtent2D dstSize);
 
