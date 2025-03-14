@@ -7,7 +7,7 @@
 namespace baldwin {
 namespace vk {
 
-std::vector<char> readFile(const std::string& filename);
+std::vector<char> readShaderFile(const std::string& filename);
 VkShaderModule createShaderModule(VkDevice device,
 				  const std::vector<char>& code);
 

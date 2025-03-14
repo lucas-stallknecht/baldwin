@@ -62,7 +62,9 @@ class VulkanRenderer : public Renderer {
     void createSync();
     void initDescriptors();
     void initBackgroundPipeline();
+    void initTrianglePipeline();
     void initImguiBackend(GLFWwindow* window);
+    void drawTriangle(const VkCommandBuffer& cmd);
     void drawImgui(const VkCommandBuffer& cmd, VkImageView targetImageView);
     void draw(int frameNum);
 
@@ -86,6 +88,8 @@ class VulkanRenderer : public Renderer {
     VkDescriptorSet _bgDescriptors = VK_NULL_HANDLE;
     VkPipelineLayout _bgPipelineLayout = VK_NULL_HANDLE;
     VkPipeline _bgPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout _trianglePipelineLayout = VK_NULL_HANDLE;
+    VkPipeline _trianglePipeline = VK_NULL_HANDLE;
 
     // Helpers
     DeletionQueue _deletionQueue;

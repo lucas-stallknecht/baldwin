@@ -129,5 +129,16 @@ VkImageViewCreateInfo getImageViewCreateInfo(VkFormat format, VkImage image,
     return imgViewCreateInfo;
 }
 
+VkPipelineShaderStageCreateInfo getPipelineShaderStageCreateInfo(
+  VkShaderStageFlagBits stage, VkShaderModule module, const char* name) {
+    VkPipelineShaderStageCreateInfo info = {
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+	.stage = stage,
+	.module = module,
+	.pName = name
+    };
+    return info;
+}
+
 } // namespace vk
 } // namespace baldwin

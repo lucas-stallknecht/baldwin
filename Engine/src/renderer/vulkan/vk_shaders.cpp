@@ -7,7 +7,7 @@
 namespace baldwin {
 namespace vk {
 
-std::vector<char> readFile(const std::string& filename) {
+std::vector<char> readShaderFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
     if (!file.is_open()) {

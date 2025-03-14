@@ -1,3 +1,4 @@
+#include "renderer/vulkan/vk_pipelines.hpp"
 #define VMA_IMPLEMENTATION
 #define GLFW_INCLUDE_VULKAN
 #include "vk_renderer.hpp"
@@ -29,6 +30,7 @@ bool VulkanRenderer::init(GLFWwindow* window, int width, int height,
     createSync();
     initDescriptors();
     initBackgroundPipeline();
+    initTrianglePipeline();
     initImguiBackend(window);
 
     return true;
@@ -291,14 +293,11 @@ void VulkanRenderer::initBackgroundPipeline() {
 	       _device, &ppLayoutInfo, nullptr, &_bgPipelineLayout),
 	     "Could not create background pipeline layout");
 
-    auto bgCode = readFile("shaders/test.comp.spv");
+    auto bgCode = readShaderFile("shaders/test.comp.spv");
     VkShaderModule module = createShaderModule(_device, bgCode);
-    VkPipelineShaderStageCreateInfo stageInfo = {
-	.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-	.stage = VK_SHADER_STAGE_COMPUTE_BIT,
-	.module = module,
-	.pName = "main",
-    };
+    VkPipelineShaderStageCreateInfo
+      stageInfo = getPipelineShaderStageCreateInfo(VK_SHADER_STAGE_COMPUTE_BIT,
+						   module);
     VkComputePipelineCreateInfo ppInfo = {
 	.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 	.stage = stageInfo,
@@ -312,6 +311,42 @@ void VulkanRenderer::initBackgroundPipeline() {
     _deletionQueue.pushFunction([this]() {
 	vkDestroyPipelineLayout(_device, _bgPipelineLayout, nullptr);
 	vkDestroyPipeline(_device, _bgPipeline, nullptr);
+    });
+}
+
+void VulkanRenderer::initTrianglePipeline() {
+    auto vertCode = readShaderFile("shaders/test_triangle.vert.spv");
+    VkShaderModule vertModule = createShaderModule(_device, vertCode);
+    auto fragCode = readShaderFile("shaders/test_triangle.frag.spv");
+    VkShaderModule fragModule = createShaderModule(_device, fragCode);
+
+    VkPipelineLayoutCreateInfo triangleLayoutInfo = {
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+	.setLayoutCount = 0
+    };
+    VK_CHECK(vkCreatePipelineLayout(
+	       _device, &triangleLayoutInfo, nullptr, &_trianglePipelineLayout),
+	     "Could not create triangle pipeline layout");
+
+    GraphicsPipelineBuilder builder = {};
+    builder._pipelineLayout = _trianglePipelineLayout;
+    builder.setShaders(vertModule, fragModule);
+    builder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    builder.setPolygonMode(VK_POLYGON_MODE_FILL);
+    builder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    builder.disableMultiSampling();
+    builder.disableBlending();
+    builder.disableDepthTest();
+    builder.setColorAttachment(_drawImage.imageFormat);
+    builder.setDepthFormat(VK_FORMAT_UNDEFINED);
+    _trianglePipeline = builder.build(_device);
+
+    vkDestroyShaderModule(_device, vertModule, nullptr);
+    vkDestroyShaderModule(_device, fragModule, nullptr);
+
+    _deletionQueue.pushFunction([this]() {
+	vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
+	vkDestroyPipeline(_device, _trianglePipeline, nullptr);
     });
 }
 
@@ -372,6 +407,39 @@ void VulkanRenderer::newImguiFrame() {
 }
 
 void VulkanRenderer::run(int frameNum) { draw(frameNum); }
+
+void VulkanRenderer::drawTriangle(const VkCommandBuffer& cmd) {
+    // Begin a render pass connected to our draw image
+    VkRenderingAttachmentInfo colorAttachment = getAttachmentInfo(
+      _drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    VkRenderingInfo renderInfo = getRenderingInfo(
+      _swapchainExtent, &colorAttachment, nullptr);
+    vkCmdBeginRendering(cmd, &renderInfo);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
+
+    // Dynamic viewport and scissor
+    // The vp defines the transformation from the image to the framebuffer
+    // The scissor rectangle define in which which regions pixels will actually
+    // be stored
+    // vp -> fit, scissor -> crop
+    VkViewport vp = {
+	.x = 0,
+	.y = 0,
+	.width = static_cast<float>(_swapchainExtent.width),
+	.height = static_cast<float>(_swapchainExtent.height),
+	.minDepth = 0.0f,
+	.maxDepth = 1.0f,
+    };
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+
+    VkRect2D scissor = { .offset = { 0, 0 }, .extent = _swapchainExtent };
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRendering(cmd);
+}
 
 void VulkanRenderer::drawImgui(const VkCommandBuffer& cmd,
 			       VkImageView targetImageView) {
@@ -445,10 +513,16 @@ void VulkanRenderer::draw(int frameNum) {
 		  std::ceil(_drawImage.imageExtent.height / 16.0),
 		  1);
 
-    // Copy draw image content onto the swap chain image
     createImageBarrierWithTransition(cmd,
 				     _drawImage.image,
 				     VK_IMAGE_LAYOUT_GENERAL,
+				     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    drawTriangle(cmd);
+
+    // Copy draw image content onto the swap chain image
+    createImageBarrierWithTransition(cmd,
+				     _drawImage.image,
+				     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 				     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     createImageBarrierWithTransition(cmd,
 				     _swapchainImages[swapchainImgIndex],
@@ -506,6 +580,7 @@ void VulkanRenderer::draw(int frameNum) {
 
 void VulkanRenderer::cleanup() {
     vkDeviceWaitIdle(_device);
+    ImGui_ImplVulkan_Shutdown();
     for (auto& frame : _frames) {
 	frame.deletionQueue.flush();
     }

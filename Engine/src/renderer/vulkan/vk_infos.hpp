@@ -1,4 +1,5 @@
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 namespace baldwin {
 namespace vk {
@@ -23,5 +24,8 @@ VkImageCreateInfo getImageCreateInfo(VkFormat format,
 VkImageViewCreateInfo getImageViewCreateInfo(VkFormat format, VkImage iamge,
 					     VkImageAspectFlags aspectFlags,
 					     bool cubeMap = false);
+VkPipelineShaderStageCreateInfo getPipelineShaderStageCreateInfo(
+  VkShaderStageFlagBits stage, VkShaderModule module,
+  const char* name = "main");
 } // namespace vk
 } // namespace baldwin
